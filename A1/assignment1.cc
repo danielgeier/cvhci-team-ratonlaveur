@@ -16,6 +16,8 @@
 
 #include "skinmodel.h"
 #include "ROC.h"
+#include <iostream>
+
 using namespace std;
 
 
