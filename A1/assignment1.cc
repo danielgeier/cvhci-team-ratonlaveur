@@ -16,6 +16,7 @@
 
 #include "skinmodel.h"
 #include "ROC.h"
+#include <iostream>
 using namespace std;
 
 
@@ -42,7 +43,7 @@ int main(int argc, char* argv[]) {
 		po::notify(pom);
 
 		if (pom.count("help")) {
-			cout << "Usage:" << endl <<  pod << "\n";
+			std::cout << "Usage:" << endl <<  pod << "\n";
 			return 0;
 		}
 	}
@@ -53,7 +54,7 @@ int main(int argc, char* argv[]) {
 	{
 		namespace fs = boost::filesystem; 
 		for (fs::directory_iterator it(fs::path(path+"/.")); it!=fs::directory_iterator(); it++)
-			if (is_regular_file(*it) and it->path().filename().string().substr(0,5)!="mask-")
+			if (is_regular_file(*it) && it->path().filename().string().substr(0,5)!="mask-")
 				images.push_back(it->path().filename().string());
     }
 	if (images.empty()) { cerr << "No images found." << endl; return -1; }
@@ -62,13 +63,13 @@ int main(int argc, char* argv[]) {
 
 	/// Perform a 5 fold cross evaluation, store results on a ROC
 	ROC<int> roc;
-    constexpr uint nFolds = 5;
-    for (uint fold=0; fold<nFolds; fold++) {
+    constexpr int nFolds = 5;
+    for (int fold=0; fold<nFolds; fold++) {
 		
 		cout << "\x1b[31;1m" << "Start fold " << (fold+1) << " of " << nFolds << "\x1b[0m" << endl;
 		
 		vector<string> testImgs, trainImgs;
-		for (uint i=0; i<images.size(); i++) {
+		for (size_t i=0; i<images.size(); i++) {
 			if (i%nFolds==fold) {
 				testImgs.push_back(images[i]);
 			} else {
