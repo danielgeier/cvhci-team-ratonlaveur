@@ -50,7 +50,8 @@ int main(int argc, char* argv[]) {
 	}
 	
 	/// get image filenames
-	string path = pom["path"].as<string>();
+	strin git push --set-upstream origin marilyn
+g path = pom["path"].as<string>();
 	vector<string> images;
 	{
 		namespace fs = boost::filesystem; 

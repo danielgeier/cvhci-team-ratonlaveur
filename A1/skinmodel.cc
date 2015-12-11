@@ -13,6 +13,7 @@ using namespace std;
 class SkinModel::SkinModelPimpl {
 public:
 	CvNormalBayesClassifier *classifier;
+	bool update;
 };
 
 /// Constructor
@@ -20,6 +21,7 @@ SkinModel::SkinModel() : pimpl(new SkinModelPimpl())
 {
 	//pimpl = new SkinModelPimpl();
 	pimpl->classifier= new CvNormalBayesClassifier;
+	pimpl->update = false;
 }
 
 /// Destructor
@@ -35,6 +37,7 @@ void SkinModel::startTraining()
 {
     //--- IMPLEMENT THIS ---//
     pimpl->classifier->clear();
+    pimpl->update = false;
 }
 
 /// Add a new training image/mask pair.  The mask should
@@ -73,8 +76,14 @@ void SkinModel::train(const cv::Mat3b& img, const cv::Mat1b& mask)
 			}
 		}
 	}
+	//static bool b = false;
+	//cout<<"update "<<pimpl->update<<endl;
+	pimpl->update = true ;
+	pimpl->classifier->train(image_vectors, responses, cv::Mat(), cv::Mat(), pimpl->update);  //, varIdx, sampleIdx, false);
+	//b = b ? b : true;
 
-	pimpl->classifier->train(image_vectors, responses, cv::Mat(), cv::Mat(), false);  //, varIdx, sampleIdx, false);
+	//pimpl->update = pimpl->update ? pimpl->update : true;
+	pimpl->update = true ;
 }
 
 
@@ -86,6 +95,7 @@ void SkinModel::train(const cv::Mat3b& img, const cv::Mat1b& mask)
 void SkinModel::finishTraining()
 {
 	//--- IMPLEMENT THIS ---//
+	pimpl->update = false;
 }
 
 
