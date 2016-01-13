@@ -16,6 +16,200 @@ static const int NUM_SOIS = 6;
 static const unsigned char MASK_SKIN = 255;
 static const unsigned char MASK_NONSKIN = 0;
 
+namespace cv
+{
+	namespace xphoto
+	{
+
+		template <typename T>
+		void balanceWhite(std::vector < Mat_<T> > &src, Mat &dst,
+			const float inputMin, const float inputMax,
+			const float outputMin, const float outputMax, const int algorithmType)
+		{
+
+			/********************* Simple white balance *********************/
+			float s1 = 2.0f; // low quantile
+			float s2 = 2.0f; // high quantile
+
+			int depth = 2; // depth of histogram tree
+			if (src[0].depth() != CV_8U)
+				++depth;
+			int bins = 16; // number of bins at each histogram level
+
+			int nElements = int(pow((float)bins, (float)depth));
+			// number of elements in histogram tree
+
+			for (size_t i = 0; i < src.size(); ++i)
+			{
+				std::vector <int> hist(nElements, 0);
+
+				typename Mat_<T>::iterator beginIt = src[i].begin();
+				typename Mat_<T>::iterator endIt = src[i].end();
+
+				for (typename Mat_<T>::iterator it = beginIt; it != endIt; ++it)
+					// histogram filling
+				{
+					int pos = 0;
+					float minValue = inputMin - 0.5f;
+					float maxValue = inputMax + 0.5f;
+					T val = *it;
+
+					float interval = float(maxValue - minValue) / bins;
+
+					for (int j = 0; j < depth; ++j)
+					{
+						int currentBin = int((val - minValue + 1e-4f) / interval);
+						++hist[pos + currentBin];
+
+						pos = (pos + currentBin)*bins;
+
+						minValue = minValue + currentBin*interval;
+						maxValue = minValue + interval;
+
+						interval /= bins;
+					}
+				}
+
+				int total = int(src[i].total());
+
+				int p1 = 0, p2 = bins - 1;
+				int n1 = 0, n2 = total;
+
+				float minValue = inputMin - 0.5f;
+				float maxValue = inputMax + 0.5f;
+
+				float interval = (maxValue - minValue) / float(bins);
+
+				for (int j = 0; j < depth; ++j)
+					// searching for s1 and s2
+				{
+					while (n1 + hist[p1] < s1 * total / 100.0f)
+					{
+						n1 += hist[p1++];
+						minValue += interval;
+					}
+					p1 *= bins;
+
+					while (n2 - hist[p2] > (100.0f - s2) * total / 100.0f)
+					{
+						n2 -= hist[p2--];
+						maxValue -= interval;
+					}
+					p2 = p2*bins - 1;
+
+					interval /= bins;
+				}
+
+				src[i] = (outputMax - outputMin) * (src[i] - minValue)
+					/ (maxValue - minValue) + outputMin;
+			}
+			/****************************************************************/
+
+
+
+			dst.create(/**/ src[0].size(), CV_MAKETYPE(src[0].depth(), int(src.size())) /**/);
+			cv::merge(src, dst);
+		}
+
+		/*!
+		* Wrappers over different white balance algorithm
+		*
+		* \param src : source image (RGB)
+		* \param dst : destination image
+		*
+		* \param inputMin : minimum input value
+		* \param inputMax : maximum input value
+		* \param outputMin : minimum output value
+		* \param outputMax : maximum output value
+		*
+		* \param algorithmType : type of the algorithm to use
+		*/
+		void balanceWhite(const Mat &src, Mat &dst, const int algorithmType,
+			const float inputMin, const float inputMax,
+			const float outputMin, const float outputMax)
+		{
+			switch (src.depth())
+			{
+			case CV_8U:
+			{
+				std::vector < Mat_<uchar> > mv;
+				split(src, mv);
+				balanceWhite(mv, dst, inputMin, inputMax, outputMin, outputMax, algorithmType);
+				break;
+			}
+			case CV_16S:
+			{
+				std::vector < Mat_<short> > mv;
+				split(src, mv);
+				balanceWhite(mv, dst, inputMin, inputMax, outputMin, outputMax, algorithmType);
+				break;
+			}
+			case CV_32S:
+			{
+				std::vector < Mat_<int> > mv;
+				split(src, mv);
+				balanceWhite(mv, dst, inputMin, inputMax, outputMin, outputMax, algorithmType);
+				break;
+			}
+			case CV_32F:
+			{
+				std::vector < Mat_<float> > mv;
+				split(src, mv);
+				balanceWhite(mv, dst, inputMin, inputMax, outputMin, outputMax, algorithmType);
+				break;
+			}
+			default:
+				CV_Error_(CV_StsNotImplemented,
+					("Unsupported source image format (=%d)", src.type()));
+				break;
+			}
+		}
+	}
+}
+
+/// Adjust the intensity dynamically.This is supposed to help with bad lightning conditions.
+void adjust_intensity(cv::Mat3b& img_rgb, int c = 10)
+{
+	cv::cvtColor(img_rgb, img_rgb, CV_BGR2HSV);
+	// divide by zero if v == 0
+	//with np.errstate(cv::divide = 'ignore', invalid = 'ignore') :
+	for (size_t col = 0; col < img_rgb.cols; col++)
+	{
+		for (size_t row = 0; row < img_rgb.rows; row++)
+		{
+			//std::cout << (int)img_hsv.at<cv::Vec3b>(col, row).val[2];
+
+			cv::Vec3b pixel = img_rgb.at<cv::Vec3b>(row, col);
+
+			//float currVal = pixel.val[2];
+			if (pixel.val[2] != 0)
+			{
+				float denominator = c * log(pixel.val[2]);
+				float intensity = 0;
+				intensity = 2 / (1 + exp((-2 * pixel.val[2]) / (denominator))) - 1;
+				intensity *= 255;
+				pixel.val[2] = round(intensity);
+				img_rgb.at<cv::Vec3b>(row, col) = pixel;
+			}
+		}
+	}
+	cv::cvtColor(img_rgb, img_rgb, CV_HSV2BGR);
+}
+
+cv::Mat3b preprocess(const cv::Mat3b& img)
+{
+	// Scale intensity adjustment constant c to mean intensity of unprocessed image.
+	cv::Scalar meanRgb = cv::mean(img);
+	float mean = (meanRgb.val[0] + meanRgb.val[1] + meanRgb.val[2]) / 3;
+	float c = (mean * mean) / 300;
+	auto img2 = img;
+	adjust_intensity(img2, c);
+
+	cv::xphoto::balanceWhite(img2, img2, 0, 0, 255, 0, 255);
+
+	return img2;
+}
+
 class SkinModel::SkinModelPimpl
 {
 public:
@@ -66,11 +260,11 @@ void updateHist(const unsigned char pixel[3], vector<vector<float>>& hists)
 	hists[5][r > g && r > b] += 1;
 }
 
-void normalizeHist(vector<float>& hist)
+void normalize(vector<float>& v)
 {
-	float max = *max_element(hist.begin(), hist.end());
+	float max = *max_element(v.begin(), v.end());
 
-	for (float& f : hist)
+	for (float& f : v)
 		f /= max;
 }
 
@@ -99,24 +293,24 @@ void SkinModel::startTraining()
 /// @param mask: mask which specifies, which pixels are skin/non-skin
 void SkinModel::train(const cv::Mat3b& img, const cv::Mat1b& mask)
 {
-	// TODO Preprocessing
+	cv::Mat3b prepImg = preprocess(img);
 
-	for (int row = 0; row < img.rows; ++row)
+	for (int row = 0; row < prepImg.rows; ++row)
 	{
-		for (int col = 0; col < img.cols; ++col)
+		for (int col = 0; col < prepImg.cols; ++col)
 		{
 			switch (mask[row][col])
 			{
 			case MASK_SKIN:
-				updateHist(img.at<cv::Vec3b>(row, col).val, pimpl->skinHists);
+				updateHist(prepImg.at<cv::Vec3b>(row, col).val, pimpl->skinHists);
 				break;
 
 			case MASK_NONSKIN:
-				updateHist(img.at<cv::Vec3b>(row, col).val, pimpl->nonskinHists);
+				updateHist(prepImg.at<cv::Vec3b>(row, col).val, pimpl->nonskinHists);
 				break;
 
 			default:
-				throw exception("Mask image is ambigious.");
+				throw "Mask image is ambigious.";
 			}
 		}
 	}
@@ -130,9 +324,9 @@ void SkinModel::train(const cv::Mat3b& img, const cv::Mat1b& mask)
 void SkinModel::finishTraining()
 {
 	for (vector<float>& hist : pimpl->skinHists)
-		normalizeHist(hist);
+		normalize(hist);
 	for (vector<float>& hist : pimpl->nonskinHists)
-		normalizeHist(hist);
+		normalize(hist);
 
 	// Calculate mass values.
 	for (int idxSoi = 0; idxSoi < NUM_SOIS; ++idxSoi)
@@ -153,7 +347,7 @@ void SkinModel::finishTraining()
 				pimpl->sois[idxSoi][NONSKIN][intensity] = mass;
 			}
 
-			pimpl->sois[idxSoi][THETA][intensity] = mass;
+			pimpl->sois[idxSoi][THETA][intensity] = 1 - mass;
 		}
 	}
 }
@@ -172,7 +366,7 @@ bool SkinModel::SkinModelPimpl::dempsterShaferClassify(const unsigned char pixel
 	float totalPSkin = 0.0;
 	float totalPNonskin = 0.0;
 
-	for (const vector<bool> combination : COMBINATIONS)
+	for (const vector<bool>& combination : COMBINATIONS)
 	{
 		float pSkin = 1.0;
 		float pNonskin = 1.0;
@@ -207,26 +401,34 @@ bool SkinModel::SkinModelPimpl::dempsterShaferClassify(const unsigned char pixel
 /// @return:    probability mask of skin color likelihood
 cv::Mat1b SkinModel::classify(const cv::Mat3b& img)
 {
-    cv::Mat1b skin = cv::Mat1b::zeros(img.rows, img.cols);
+	cv::Mat3b prepImg = preprocess(img);
+    cv::Mat1b skin = cv::Mat1b::zeros(prepImg.rows, prepImg.cols);
 
-	for (int row = 0; row < img.rows; ++row)
+	for (int row = 0; row < prepImg.rows; ++row)
 	{
-		for (int col = 0; col < img.cols; ++col)
+		for (int col = 0; col < prepImg.cols; ++col)
 		{
-			auto pixel = img.at<cv::Vec3b>(row, col).val;
+			auto pixel = prepImg.at<cv::Vec3b>(row, col).val;
 
-			if (pimpl->dempsterShaferClassify(pixel))
+			if(col < 160 || col > 480 || row < 100)
+			{
+				// nothing to see here ..
+				continue;
+			}
+			if (pimpl->dempsterShaferClassify(pixel)) {
 				skin.at<unsigned char>(row, col) = 255;
+				prepImg.at<cv::Vec3b>(row, col).val[1] = 255;
+				prepImg.at<cv::Vec3b>(row, col).val[0] = 0;
+				prepImg.at<cv::Vec3b>(row, col).val[2] = 255;
+			}
 		}
 	}
 
-	const bool SHOW_IMAGES = false;
+	const bool SHOW_IMAGES = true;
 	if (SHOW_IMAGES)
 	{
 		namedWindow("Display window", cv::WINDOW_AUTOSIZE);// Create a window for display.
-		imshow("Display window", skin); // Show our image inside it.
-		//string name = rand() % 1000 + ".jpg";
-		//imwrite(name, skin);
+		imshow("Display window", prepImg); // Show our image inside it.
 		cv::waitKey(0); // Wait for a keystroke in the window
 	}
 
