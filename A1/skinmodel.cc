@@ -1,6 +1,8 @@
 #include "skinmodel.h"
 #include <cmath>
 #include <iostream>
+#include <iomanip>
+#include <fstream>
 #include <opencv/highgui.h>
 
 using namespace std;
@@ -15,6 +17,7 @@ enum SOI_IDX
 static const int NUM_SOIS = 6;
 static const unsigned char MASK_SKIN = 255;
 static const unsigned char MASK_NONSKIN = 0;
+static const int IMG_SIZE = 640 * 480;
 
 namespace cv
 {
@@ -201,7 +204,7 @@ cv::Mat3b preprocess(const cv::Mat3b& img)
 	// Scale intensity adjustment constant c to mean intensity of unprocessed image.
 	cv::Scalar meanRgb = cv::mean(img);
 	float mean = (meanRgb.val[0] + meanRgb.val[1] + meanRgb.val[2]) / 3;
-	float c = (mean * mean) / 300;
+	float c = (mean * mean) / 400;
 	auto img2 = img;
 	adjust_intensity(img2, c);
 
@@ -215,10 +218,12 @@ class SkinModel::SkinModelPimpl
 public:
 	vector<vector<float>> skinHists;
 	vector<vector<float>> nonskinHists;
+	vector<float> skinPos;
+	vector<float> nonskinPos;
 	// Sources of interest
 	vector<vector<vector<float>>> sois;
 
-	bool dempsterShaferClassify(const unsigned char* pixel);
+	float dempsterShaferClassify(const unsigned char* pixel, int hack);
 };
 
 /// Constructor
@@ -232,6 +237,9 @@ SkinModel::SkinModel() : pimpl(new SkinModelPimpl())
 	for (vector<float>& hist : pimpl->nonskinHists)
 		hist.resize(256);
 
+	pimpl->skinPos.resize(IMG_SIZE);
+	pimpl->nonskinPos.resize(IMG_SIZE);
+
 	pimpl->sois.resize(NUM_SOIS);
 	for (vector<vector<float>>& masses : pimpl->sois)
 	{
@@ -239,6 +247,12 @@ SkinModel::SkinModel() : pimpl(new SkinModelPimpl())
 		for (vector<float>& m : masses)
 			m.resize(256);
 	}
+
+//	pimpl->sois[NUM_SOIS - 1].resize(3); // skin, nonskin, theta
+//	for (vector<float>& m : pimpl->sois[NUM_SOIS - 1])
+//	{
+//		m.resize(IMG_SIZE);
+//	}
 }
 
 /// Destructor
@@ -284,6 +298,12 @@ void SkinModel::startTraining()
 	for (vector<vector<float>>& masses : pimpl->sois)
 		for (vector<float> m : masses)
 			fill(m.begin(), m.end(), 0);
+
+	//for (vector<float>& m : pimpl->sois[NUM_SOIS - 1])
+	//	fill(m.begin(), m.end(), 0);
+//
+//	fill(pimpl->skinPos.begin(), pimpl->skinPos.end(), 0);
+//	fill(pimpl->nonskinPos.begin(), pimpl->nonskinPos.end(), 0);
 }
 
 /// Add a new training image/mask pair.  The mask should
@@ -303,10 +323,13 @@ void SkinModel::train(const cv::Mat3b& img, const cv::Mat1b& mask)
 			{
 			case MASK_SKIN:
 				updateHist(prepImg.at<cv::Vec3b>(row, col).val, pimpl->skinHists);
+				//pimpl->skinPos[row * 640 + col]++;
 				break;
 
 			case MASK_NONSKIN:
 				updateHist(prepImg.at<cv::Vec3b>(row, col).val, pimpl->nonskinHists);
+				//pimpl->skinPos[row * 640 + col] += 0.02;
+				//pimpl->nonskinPos[row * 640 + col]++;
 				break;
 
 			default:
@@ -327,6 +350,9 @@ void SkinModel::finishTraining()
 		normalize(hist);
 	for (vector<float>& hist : pimpl->nonskinHists)
 		normalize(hist);
+
+	//normalize(pimpl->skinPos);
+	//normalize(pimpl->nonskinPos);
 
 	// Calculate mass values.
 	for (int idxSoi = 0; idxSoi < NUM_SOIS; ++idxSoi)
@@ -350,18 +376,39 @@ void SkinModel::finishTraining()
 			pimpl->sois[idxSoi][THETA][intensity] = 1 - mass;
 		}
 	}
+	
+//	// Calculate mass values for pos.
+//	for (int pos = 0; pos < IMG_SIZE; ++pos)
+//	{
+//		float skin = pimpl->skinPos[pos];
+//		float nonskin = pimpl->nonskinPos[pos];
+//		float mass = (skin - nonskin) / (skin + nonskin);
+//
+//		if (mass > 0)
+//		{
+//			pimpl->sois[NUM_SOIS - 1][SKIN][pos] = mass;
+//		}
+//		else
+//		{
+//			mass = -mass;
+//			pimpl->sois[NUM_SOIS - 1][NONSKIN][pos] = mass;
+//		}
+//
+//		pimpl->sois[NUM_SOIS - 1][THETA][pos] = 1 - mass;
+//	}
 }
 
 
-const static vector<vector<bool>> COMBINATIONS = {{false, true, true, true, true, false},{true, false, false, true, true, true},{true, true, false, false, true, false},{false, false, true, false, true, false},{false, true, true, false, false, false},{true, false, false, false, false, false},{false, true, false, true, true, false},{true, false, false, true, false, true},{true, false, true, true, true, false},{false, false, false, true, false, false},{false, true, true, true, false, true},{false, true, true, false, true, true},{false, false, true, true, false, false},{true, false, false, true, true, false},{true, false, true, true, false, true},{false, false, true, false, true, true},{true, true, true, false, true, false},{false, true, true, false, false, true},{true, false, true, false, false, false},{false, false, true, true, true, true},{false, false, false, true, true, false},{true, false, true, true, true, true},{false, true, true, true, false, false},{false, false, true, false, false, false},{true, true, true, false, false, true},{false, true, true, false, true, false},{true, false, true, false, true, true},{false, false, true, true, false, true},{true, true, true, true, false, false},{true, false, true, true, false, false},{true, true, true, false, true, true},{true, false, true, false, false, true},{false, false, false, true, true, true},{false, false, true, true, true, false},{false, false, false, false, false, false},{true, true, true, false, false, false},{true, false, true, false, true, false},{false, true, false, false, true, false},{true, true, true, true, false, true},{true, true, false, true, true, false},{false, false, false, false, true, true},{false, true, true, true, true, true},{false, true, false, false, false, true},{true, true, true, true, true, false},{true, true, false, true, false, true},{false, true, false, true, false, false},{false, false, false, false, false, true},{true, true, false, false, false, false},{false, true, false, false, true, true},{true, false, false, false, true, false},{true, true, false, true, true, true},{false, true, false, true, true, true},{false, false, false, false, true, false},{true, true, false, false, true, true},{false, true, false, false, false, false},{true, false, false, false, false, true},{true, true, false, true, false, false},{false, false, true, false, false, true},{false, true, false, true, false, true},{true, false, false, true, false, false},{true, true, false, false, false, true},{false, false, false, true, false, true},{true, false, false, false, true, true}};
+const static vector<vector<bool>> COMBINATIONS = //{ { false, true, false, true, true, false, true },{ true, true, true, true, false, false, true },{ true, false, false, true, false, false, true },{ true, true, false, true, false, false, true },{ true, false, true, true, false, false, true },{ false, false, true, false, true, true, false },{ false, false, false, false, true, true, false },{ false, true, false, false, true, true, false },{ true, true, false, false, true, false, false },{ true, true, true, true, false, true, true },{ true, false, true, false, true, false, false },{ true, false, false, true, false, true, true },{ true, true, true, false, true, true, false },{ false, false, false, true, true, false, true },{ false, true, true, true, true, false, true },{ true, true, false, false, false, false, false },{ true, false, true, false, false, false, false },{ false, false, true, false, false, true, true },{ false, true, false, false, false, true, true },{ true, true, true, true, true, true, false },{ false, false, false, true, true, true, true },{ true, false, false, true, true, true, false },{ false, true, true, true, true, true, true },{ false, false, true, false, false, false, true },{ false, false, false, false, false, true, false },{ false, true, false, false, false, false, true },{ true, true, true, false, true, false, true },{ false, true, true, false, false, true, false },{ true, false, false, false, true, false, true },{ false, false, true, true, true, false, false },{ false, true, false, true, true, false, false },{ false, false, false, true, false, true, false },{ true, true, false, true, false, false, false },{ false, true, true, true, false, true, false },{ true, false, true, true, false, false, false },{ true, false, false, false, true, true, true },{ false, false, false, false, true, true, true },{ false, false, true, true, false, false, false },{ true, true, true, true, false, true, false },{ false, true, false, true, false, false, false },{ true, false, false, true, false, true, false },{ true, true, false, true, true, false, false },{ true, false, true, true, true, false, false },{ false, false, false, false, true, false, true },{ true, true, true, false, false, true, false },{ false, true, true, false, true, false, true },{ true, true, false, false, false, false, true },{ true, false, false, false, false, true, false },{ true, false, true, false, false, false, true },{ false, false, false, true, true, true, false },{ false, true, true, false, true, true, false },{ true, false, false, true, true, true, true },{ false, true, true, true, true, true, false },{ true, true, false, false, false, true, true },{ true, false, true, false, false, true, true },{ false, false, true, false, false, false, false },{ false, true, false, false, false, false, false },{ true, true, true, true, true, false, true },{ true, false, false, true, true, false, true },{ false, false, false, true, false, true, true },{ false, false, true, false, true, false, false },{ false, true, true, true, false, true, true },{ false, true, false, false, true, false, false },{ true, true, false, false, true, true, false },{ true, false, false, false, true, true, false },{ true, false, true, false, true, true, false },{ false, false, true, true, false, false, true },{ false, true, false, true, false, false, true },{ false, false, false, true, false, false, true },{ false, true, true, true, false, false, true },{ true, true, false, true, true, false, true },{ true, false, true, true, true, false, true },{ false, false, false, false, true, false, false },{ false, false, true, true, false, true, true },{ true, true, true, false, false, true, true },{ false, true, true, false, true, false, false },{ false, true, false, true, false, true, true },{ true, false, false, false, false, true, true },{ true, true, true, false, true, true, true },{ true, false, true, true, true, true, true },{ false, false, false, false, false, false, false },{ true, true, true, false, false, false, true },{ true, true, false, false, false, true, false },{ false, true, true, false, false, false, false },{ true, false, false, false, false, false, true },{ true, false, true, false, false, true, false },{ false, false, true, true, true, true, false },{ true, true, true, true, true, false, false },{ false, true, false, true, true, true, false },{ true, false, false, true, true, false, false },{ true, true, false, true, false, true, false },{ true, false, true, true, false, true, false },{ false, false, true, false, true, false, true },{ false, true, false, false, true, false, true },{ true, true, false, false, true, true, true },{ true, true, true, true, false, false, false },{ true, false, true, false, true, true, true },{ true, false, false, true, false, false, false },{ true, true, false, true, true, true, true },{ false, false, false, true, false, false, false },{ false, false, true, false, true, true, true },{ false, true, true, true, false, false, false },{ false, true, false, false, true, true, true },{ true, true, false, false, true, false, true },{ true, false, true, false, true, false, true },{ false, false, true, true, false, true, false },{ false, true, false, true, false, true, false },{ false, false, false, true, true, false, false },{ true, true, false, true, true, true, false },{ false, true, true, true, true, false, false },{ true, false, true, true, true, true, false },{ false, false, true, false, false, true, false },{ false, false, false, false, false, false, true },{ true, true, true, false, false, false, false },{ false, true, false, false, false, true, false },{ false, true, true, false, false, false, true },{ true, false, false, false, false, false, false },{ false, false, true, true, true, true, true },{ false, true, false, true, true, true, true },{ false, false, false, false, false, true, true },{ true, true, false, true, false, true, true },{ true, true, true, false, true, false, false },{ false, true, true, false, false, true, true },{ true, false, true, true, false, true, true },{ true, false, false, false, true, false, false },{ false, true, true, false, true, true, true },{ false, false, true, true, true, false, true } };
+{{false, true, true, true, true, false},{true, false, false, true, true, true},{true, true, false, false, true, false},{false, false, true, false, true, false},{false, true, true, false, false, false},{true, false, false, false, false, false},{false, true, false, true, true, false},{true, false, false, true, false, true},{true, false, true, true, true, false},{false, false, false, true, false, false},{false, true, true, true, false, true},{false, true, true, false, true, true},{false, false, true, true, false, false},{true, false, false, true, true, false},{true, false, true, true, false, true},{false, false, true, false, true, true},{true, true, true, false, true, false},{false, true, true, false, false, true},{true, false, true, false, false, false},{false, false, true, true, true, true},{false, false, false, true, true, false},{true, false, true, true, true, true},{false, true, true, true, false, false},{false, false, true, false, false, false},{true, true, true, false, false, true},{false, true, true, false, true, false},{true, false, true, false, true, true},{false, false, true, true, false, true},{true, true, true, true, false, false},{true, false, true, true, false, false},{true, true, true, false, true, true},{true, false, true, false, false, true},{false, false, false, true, true, true},{false, false, true, true, true, false},{false, false, false, false, false, false},{true, true, true, false, false, false},{true, false, true, false, true, false},{false, true, false, false, true, false},{true, true, true, true, false, true},{true, true, false, true, true, false},{false, false, false, false, true, true},{false, true, true, true, true, true},{false, true, false, false, false, true},{true, true, true, true, true, false},{true, true, false, true, false, true},{false, true, false, true, false, false},{false, false, false, false, false, true},{true, true, false, false, false, false},{false, true, false, false, true, true},{true, false, false, false, true, false},{true, true, false, true, true, true},{false, true, false, true, true, true},{false, false, false, false, true, false},{true, true, false, false, true, true},{false, true, false, false, false, false},{true, false, false, false, false, true},{true, true, false, true, false, false},{false, false, true, false, false, true},{false, true, false, true, false, true},{true, false, false, true, false, false},{true, true, false, false, false, true},{false, false, false, true, false, true},{true, false, false, false, true, true}};
 
-bool SkinModel::SkinModelPimpl::dempsterShaferClassify(const unsigned char pixel[3])
+float SkinModel::SkinModelPimpl::dempsterShaferClassify(const unsigned char pixel[3], int hack)
 {
 	float b = pixel[0];
 	float g = pixel[1];
 	float r = pixel[2];
 
-	int idxs[] = {b, g, r, abs(r - g), abs(r - b), r > g && r > b};
+	int idxs[] = {b, g, r, abs(r - g), abs(r - b), r > g && r > b, hack};
 
 	float totalPSkin = 0.0;
 	float totalPNonskin = 0.0;
@@ -391,7 +438,7 @@ bool SkinModel::SkinModelPimpl::dempsterShaferClassify(const unsigned char pixel
 		totalPNonskin += pNonskin;
 	}
 
-	return totalPSkin > totalPNonskin;
+	return totalPSkin - totalPNonskin;
 }
 
 /// Classify an unknown test image.  The result is a probability
@@ -403,30 +450,63 @@ cv::Mat1b SkinModel::classify(const cv::Mat3b& img)
 {
 	cv::Mat3b prepImg = preprocess(img);
     cv::Mat1b skin = cv::Mat1b::zeros(prepImg.rows, prepImg.cols);
+    cv::Mat1f preSkin = cv::Mat1f::zeros(prepImg.rows, prepImg.cols);
+	preSkin = -1.;
 
 	for (int row = 0; row < prepImg.rows; ++row)
 	{
 		for (int col = 0; col < prepImg.cols; ++col)
 		{
-			auto pixel = prepImg.at<cv::Vec3b>(row, col).val;
-
-			if(col < 160 || col > 480 || row < 100)
-			{
-				// nothing to see here ..
+			if (row < 80 ||
+				col < 160 ||
+				col > 500 ||
+				col + row < 350 )//||
+				//(row < 400 && col + row > 700))
 				continue;
-			}
-			if (pimpl->dempsterShaferClassify(pixel)) {
-				skin.at<unsigned char>(row, col) = 255;
-				prepImg.at<cv::Vec3b>(row, col).val[1] = 255;
-				prepImg.at<cv::Vec3b>(row, col).val[0] = 0;
-				prepImg.at<cv::Vec3b>(row, col).val[2] = 255;
-			}
+
+			auto pixel = prepImg.at<cv::Vec3b>(row, col).val;
+			preSkin.at<float>(row, col) = pimpl->dempsterShaferClassify(pixel, row * 640 + col);
 		}
 	}
 
-	const bool SHOW_IMAGES = true;
+	cv::normalize(preSkin, preSkin, 255., 0., cv::NORM_MINMAX);
+
+	auto kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, { 2, 2 });
+	cv::morphologyEx(preSkin, preSkin, cv::MORPH_OPEN, kernel);
+
+	preSkin.convertTo(skin, CV_8UC1);
+
+	sort(preSkin.begin(), preSkin.end());
+	int vgood = preSkin.at<float>(640. * 480. * 0.98);
+	int vbad = preSkin.at<float>(640. * 480. * 0.85);
+
+//	for (uchar& s : skin)
+//	{
+//		if (s < vbad - vgood)
+//			s = 0;
+//		else if (s > vgood)
+//			s = 255;
+//	}
+	cout << vbad << ' ' << vgood << endl;
+
+	cv::threshold(skin, skin, (vgood + vgood) / 2., 255., cv::THRESH_BINARY);
+
+	const bool SHOW_IMAGES = false;
 	if (SHOW_IMAGES)
 	{
+		for (int row = 0; row < prepImg.rows; ++row)
+		{
+			for (int col = 0; col < prepImg.cols; ++col)
+			{
+
+				uchar* pixel = prepImg.at<cv::Vec3b>(row, col).val;
+
+				uchar val = skin.at<unsigned char>(row, col);
+				//if (val == 255) {
+				pixel[1] = val;
+				//}
+			}
+		}
 		namedWindow("Display window", cv::WINDOW_AUTOSIZE);// Create a window for display.
 		imshow("Display window", prepImg); // Show our image inside it.
 		cv::waitKey(0); // Wait for a keystroke in the window
