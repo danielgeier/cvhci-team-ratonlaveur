@@ -2,17 +2,19 @@
 #include <cmath>
 #include <iostream>
 #include <fstream>
+#include <iomanip>
 
 #include <opencv2/ml/ml.hpp>
 #include <memory>
 //#include <opencv/ml.h>
+#include <time.h>
 
 
 using namespace std;
 
 class SkinModel::SkinModelPimpl {
 public:
-	CvNormalBayesClassifier *classifier;
+	CvKNearest *classifier;
 	bool update;
 };
 
@@ -20,7 +22,7 @@ public:
 SkinModel::SkinModel() : pimpl(new SkinModelPimpl())
 {
 	//pimpl = new SkinModelPimpl();
-	pimpl->classifier= new CvNormalBayesClassifier;
+	pimpl->classifier= new CvKNearest;
 	pimpl->update = false;
 }
 
@@ -49,37 +51,59 @@ void SkinModel::train(const cv::Mat3b& img, const cv::Mat1b& mask)
 {
 	//--- IMPLEMENT THIS ---//
 
-    cv::Mat image_vectors = cv::Mat::zeros(img.rows*img.cols  , 3, CV_32FC1);
-    cv::Mat responses = cv::Mat::zeros(img.rows*img.cols  , 1, CV_32FC1);
+	int nb_pts = img.rows*img.cols/1000;
+
+    cv::Mat image_vectors = cv::Mat::zeros(nb_pts  , 3, CV_32FC1); //img.rows*img.cols
+    cv::Mat responses = cv::Mat::zeros(nb_pts  , 1, CV_32FC1);
 
     int k=0;
+    int n=0;
     cv::Vec3b bgr =0;
 
-    for (int i=0;i<img.rows;i++)
-    {
-		for (int j=0;j<img.cols;j++)
-		{
-			if(k < img.rows * img.cols){
+    int nb_s=0;
+    int nb_ns=0;
 
-				if(mask[i][j]==0){
-					responses.at<float>(k,0)=0;
-				}
-				else responses.at<float>(k,0)=1;
+    int i;
+    int j;
 
-				bgr = img(i,j);
-				for(int color=0;color<3;color++)
-				{				
-					image_vectors.at<float>(k,color)=(float)bgr[color];
-				}
+  //   for (int i=0;i<img.rows;i++)
+  //   {
+		// for (int j=0;j<img.cols;j++)
+		// {
+    		srand(time(NULL));
+			while(n<nb_pts){
+				//cout<<"nb_ns "<<nb_ns<<" nb_s "<<nb_s<<endl;
+				//if(n%30==0){
+					i = rand()%img.rows;
+					j = rand()%img.cols;
+					//cout<<"i "<<i<<" j "<<j<<endl;
 
-				k++;
+					if(mask[i][j]==0){
+						responses.at<float>(k,0)=0;
+						nb_ns++;
+					}
+					else {
+						responses.at<float>(k,0)=1;
+						nb_s++;
+					}
+
+					bgr = img(i,j);
+					for(int color=0;color<3;color++)
+					{				
+						image_vectors.at<float>(k,color)=(float)bgr[color];
+					}
+
+					k++;
+				//}
+				n++;
 			}
-		}
-	}
+	// 	}
+	// }
+
 	//static bool b = false;
 	//cout<<"update "<<pimpl->update<<endl;
-	pimpl->update = true ;
-	pimpl->classifier->train(image_vectors, responses, cv::Mat(), cv::Mat(), pimpl->update);  //, varIdx, sampleIdx, false);
+	//pimpl->update = true ;
+	pimpl->classifier->train(image_vectors, responses, cv::Mat(), false, 32, pimpl->update );//, pimpl->update);  //, varIdx, sampleIdx, false);
 	//b = b ? b : true;
 
 	//pimpl->update = pimpl->update ? pimpl->update : true;
@@ -108,6 +132,9 @@ cv::Mat1b SkinModel::classify(const cv::Mat3b& img)
 {
     cv::Mat1b skin = cv::Mat1b::zeros(img.rows, img.cols);
 
+    int t_begin = time(NULL);
+    int nb_neihbours = 6;
+
     //cout<<"flag 0.5 "<<endl;
 
 	//--- IMPLEMENT THIS ---//
@@ -133,6 +160,11 @@ cv::Mat1b SkinModel::classify(const cv::Mat3b& img)
 
 	if (true){
 
+		cout<<"Nombre de points totals "<<pimpl->classifier->get_sample_count()<<endl;
+		// time_t now;
+		// cout << "heure de début: " << ctime(&now)<<endl;
+		
+
 		int k=0;
     	cv::Vec3b bgr =0;
 
@@ -148,12 +180,14 @@ cv::Mat1b SkinModel::classify(const cv::Mat3b& img)
 				{				
 					samples.at<float>(k,color)=(float)bgr[color];
 				}
-
+				//cout <<"i "<<i<<" j"<<j<<endl;
+				//cout <<i * img.cols + j<<" / "<<img.rows*img.cols<<endl;
+				//cout<< setprecision (2) << double(i * img.cols + j )/double(img.rows*img.cols)*100 << "%%" <<endl;
 				k++;
 			}
 		}
 
-		pimpl->classifier->predict(samples, &results);
+		pimpl->classifier->find_nearest(samples, nb_neihbours, &results);
 
 		k=0;
 
@@ -162,16 +196,30 @@ cv::Mat1b SkinModel::classify(const cv::Mat3b& img)
 			for (int j=0;j<img.cols;j++)
 			{
 				skin[i][j]=results.at<float>(k,0)*255;
+				//cout<<results.at<float>(k,0)<<endl;
 				k++;
 			}
 		}
 	}
 
-	// cv::_OutputArray op_skin = cv::_OutputArray(cv::Mat1b(img.rows,img.cols));
-	// cv::_InputArray kernel = cv::_InputArray(cv::Mat1b(5,5));
+	// Create a structuring element (SE)
+	int morph_size = 1;
+	cv::Mat kernel = cv::getStructuringElement( cv::MORPH_ELLIPSE , cv::Size( 2*morph_size + 1, 2*morph_size+1 ), cv::Point( morph_size, morph_size ) );
+	   
+	cv::Mat op_skin; // result matrix
 
-	// morphologyEx(skin, op_skin, CV_MOP_OPEN, kernel);
+	// Apply the specified morphology operation
+	morphologyEx(skin, op_skin, CV_MOP_OPEN, kernel);
 
-    return skin;
+	morph_size = 1;
+	kernel = cv::getStructuringElement( cv::MORPH_RECT, cv::Size( 2*morph_size + 1, 2*morph_size+1 ), cv::Point( morph_size, morph_size ) );
+
+	//morphologyEx(skin, op_skin, CV_MOP_CLOSE, kernel);
+
+	int t_end = time(NULL);
+	
+	cout<<"Duration = "<<t_end - t_begin <<" sec"<<endl;
+
+    return op_skin;
 }
 
