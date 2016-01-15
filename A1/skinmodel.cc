@@ -133,7 +133,7 @@ cv::Mat1b SkinModel::classify(const cv::Mat3b& img)
     cv::Mat1b skin = cv::Mat1b::zeros(img.rows, img.cols);
 
     int t_begin = time(NULL);
-    int nb_neihbours = 6;
+    int nb_neihbours = 10;
 
     //cout<<"flag 0.5 "<<endl;
 
@@ -200,6 +200,16 @@ cv::Mat1b SkinModel::classify(const cv::Mat3b& img)
 				k++;
 			}
 		}
+
+		// srand(time(NULL));
+		// int n=0;
+		// while(n<(img.rows*img.cols)/100){
+		// 	int i = rand()%img.rows;
+		// 	int j = rand()%img.cols;
+		// 	cout<<"i "<<i<<" j "<<j<<endl;
+		// 	skin[i][j]=255;
+		// 	n++;
+		// }
 	}
 
 	// Create a structuring element (SE)
@@ -209,7 +219,7 @@ cv::Mat1b SkinModel::classify(const cv::Mat3b& img)
 	cv::Mat op_skin; // result matrix
 
 	// Apply the specified morphology operation
-	morphologyEx(skin, op_skin, CV_MOP_OPEN, kernel);
+	//morphologyEx(skin, op_skin, CV_MOP_OPEN, kernel);
 
 	morph_size = 1;
 	kernel = cv::getStructuringElement( cv::MORPH_RECT, cv::Size( 2*morph_size + 1, 2*morph_size+1 ), cv::Point( morph_size, morph_size ) );
@@ -220,6 +230,6 @@ cv::Mat1b SkinModel::classify(const cv::Mat3b& img)
 	
 	cout<<"Duration = "<<t_end - t_begin <<" sec"<<endl;
 
-    return op_skin;
+    return skin;
 }
 
