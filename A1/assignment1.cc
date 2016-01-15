@@ -50,8 +50,7 @@ int main(int argc, char* argv[]) {
 	}
 	
 	/// get image filenames
-	strin git push --set-upstream origin marilyn
-g path = pom["path"].as<string>();
+	string path = pom["path"].as<string>();
 	vector<string> images;
 	{
 		namespace fs = boost::filesystem; 
@@ -104,6 +103,10 @@ g path = pom["path"].as<string>();
 			cv::Mat1b hyp = model.classify(img);
 
 			cv::Mat1b mask = cv::imread(path+"/mask-"+f,0);
+
+			//cv::imshow(" ",hyp);
+			//cv::waitKey(0);
+			cv::imwrite("results/"+f,hyp);
 
 			for (int i=0; i<hyp.rows; i++)
 				for (int j=0; j<hyp.cols; j++)
