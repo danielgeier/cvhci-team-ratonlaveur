@@ -12,6 +12,198 @@
 
 using namespace std;
 
+enum SOI_IDX
+{
+	SKIN,
+	NONSKIN,
+	THETA
+};
+
+static const int NUM_SOIS = 6;
+static const unsigned char MASK_SKIN = 255;
+static const unsigned char MASK_NONSKIN = 0;
+static const int IMG_SIZE = 640 * 480;
+
+namespace cv
+{
+	namespace xphoto
+	{
+
+		template <typename T>
+		void balanceWhite(std::vector < Mat_<T> > &src, Mat &dst,
+			const float inputMin, const float inputMax,
+			const float outputMin, const float outputMax, const int algorithmType)
+		{
+
+			/********************* Simple white balance *********************/
+			float s1 = 2.0f; // low quantile
+			float s2 = 2.0f; // high quantile
+
+			int depth = 2; // depth of histogram tree
+			if (src[0].depth() != CV_8U)
+				++depth;
+			int bins = 16; // number of bins at each histogram level
+
+			int nElements = int(pow((float)bins, (float)depth));
+			// number of elements in histogram tree
+
+			for (size_t i = 0; i < src.size(); ++i)
+			{
+				std::vector <int> hist(nElements, 0);
+
+				typename Mat_<T>::iterator beginIt = src[i].begin();
+				typename Mat_<T>::iterator endIt = src[i].end();
+
+				for (typename Mat_<T>::iterator it = beginIt; it != endIt; ++it)
+					// histogram filling
+				{
+					int pos = 0;
+					float minValue = inputMin - 0.5f;
+					float maxValue = inputMax + 0.5f;
+					T val = *it;
+
+					float interval = float(maxValue - minValue) / bins;
+
+					for (int j = 0; j < depth; ++j)
+					{
+						int currentBin = int((val - minValue + 1e-4f) / interval);
+						++hist[pos + currentBin];
+
+						pos = (pos + currentBin)*bins;
+
+						minValue = minValue + currentBin*interval;
+						maxValue = minValue + interval;
+
+						interval /= bins;
+					}
+				}
+
+				int total = int(src[i].total());
+
+				int p1 = 0, p2 = bins - 1;
+				int n1 = 0, n2 = total;
+
+				float minValue = inputMin - 0.5f;
+				float maxValue = inputMax + 0.5f;
+
+				float interval = (maxValue - minValue) / float(bins);
+
+				for (int j = 0; j < depth; ++j)
+					// searching for s1 and s2
+				{
+					while (n1 + hist[p1] < s1 * total / 100.0f)
+					{
+						n1 += hist[p1++];
+						minValue += interval;
+					}
+					p1 *= bins;
+
+					while (n2 - hist[p2] > (100.0f - s2) * total / 100.0f)
+					{
+						n2 -= hist[p2--];
+						maxValue -= interval;
+					}
+					p2 = p2*bins - 1;
+
+					interval /= bins;
+				}
+
+				src[i] = (outputMax - outputMin) * (src[i] - minValue)
+					/ (maxValue - minValue) + outputMin;
+			}
+			/****************************************************************/
+
+
+
+			dst.create(/**/ src[0].size(), CV_MAKETYPE(src[0].depth(), int(src.size())) /**/);
+			cv::merge(src, dst);
+		}
+
+		/*!
+		* Wrappers over different white balance algorithm
+		*
+		* \param src : source image (RGB)
+		* \param dst : destination image
+		*
+		* \param inputMin : minimum input value
+		* \param inputMax : maximum input value
+		* \param outputMin : minimum output value
+		* \param outputMax : maximum output value
+		*
+		* \param algorithmType : type of the algorithm to use
+		*/
+		void balanceWhite(const Mat &src, Mat &dst, const int algorithmType,
+			const float inputMin, const float inputMax,
+			const float outputMin, const float outputMax)
+		{
+			switch (src.depth())
+			{
+			case CV_8U:
+			{
+				std::vector < Mat_<uchar> > mv;
+				split(src, mv);
+				balanceWhite(mv, dst, inputMin, inputMax, outputMin, outputMax, algorithmType);
+				break;
+			}
+			case CV_16S:
+			{
+				std::vector < Mat_<short> > mv;
+				split(src, mv);
+				balanceWhite(mv, dst, inputMin, inputMax, outputMin, outputMax, algorithmType);
+				break;
+			}
+			case CV_32S:
+			{
+				std::vector < Mat_<int> > mv;
+				split(src, mv);
+				balanceWhite(mv, dst, inputMin, inputMax, outputMin, outputMax, algorithmType);
+				break;
+			}
+			case CV_32F:
+			{
+				std::vector < Mat_<float> > mv;
+				split(src, mv);
+				balanceWhite(mv, dst, inputMin, inputMax, outputMin, outputMax, algorithmType);
+				break;
+			}
+			default:
+				CV_Error_(CV_StsNotImplemented,
+					("Unsupported source image format (=%d)", src.type()));
+				break;
+			}
+		}
+	}
+}
+
+/// Adjust the intensity dynamically.This is supposed to help with bad lightning conditions.
+void adjust_intensity(cv::Mat3b& img_rgb, int c = 10)
+{
+	cv::cvtColor(img_rgb, img_rgb, CV_BGR2HSV);
+	// divide by zero if v == 0
+	//with np.errstate(cv::divide = 'ignore', invalid = 'ignore') :
+	for (size_t col = 0; col < img_rgb.cols; col++)
+	{
+		for (size_t row = 0; row < img_rgb.rows; row++)
+		{
+			//std::cout << (int)img_hsv.at<cv::Vec3b>(col, row).val[2];
+
+			cv::Vec3b pixel = img_rgb.at<cv::Vec3b>(row, col);
+
+			//float currVal = pixel.val[2];
+			if (pixel.val[2] != 0)
+			{
+				float denominator = c * log(pixel.val[2]);
+				float intensity = 0;
+				intensity = 2 / (1 + exp((-2 * pixel.val[2]) / (denominator))) - 1;
+				intensity *= 255;
+				pixel.val[2] = round(intensity);
+				img_rgb.at<cv::Vec3b>(row, col) = pixel;
+			}
+		}
+	}
+	cv::cvtColor(img_rgb, img_rgb, CV_HSV2BGR);
+}
+
 cv::Mat3b preprocess(const cv::Mat3b& img)
 {
 	// Scale intensity adjustment constant c to mean intensity of unprocessed image.
@@ -61,9 +253,11 @@ void SkinModel::startTraining()
 ///
 /// @param img:  input image
 /// @param mask: mask which specifies, which pixels are skin/non-skin
-void SkinModel::train(const cv::Mat3b& img, const cv::Mat1b& mask)
+void SkinModel::train(const cv::Mat3b& img2, const cv::Mat1b& mask)
 {
 	//--- IMPLEMENT THIS ---//
+
+	cv::Mat3b img = preprocess(img2);
 
 	int nb_pts = img.rows*img.cols/1000;
 
@@ -229,13 +423,13 @@ cv::Mat1b SkinModel::classify(const cv::Mat3b& img2)
 	}
 
 	// Create a structuring element (SE)
-	int morph_size = 1;
+	int morph_size = 3;
 	cv::Mat kernel = cv::getStructuringElement( cv::MORPH_ELLIPSE , cv::Size( 2*morph_size + 1, 2*morph_size+1 ), cv::Point( morph_size, morph_size ) );
 	   
 	cv::Mat op_skin; // result matrix
 
 	// Apply the specified morphology operation
-	//morphologyEx(skin, op_skin, CV_MOP_OPEN, kernel);
+	morphologyEx(skin, op_skin, CV_MOP_OPEN, kernel);
 
 	morph_size = 1;
 	kernel = cv::getStructuringElement( cv::MORPH_RECT, cv::Size( 2*morph_size + 1, 2*morph_size+1 ), cv::Point( morph_size, morph_size ) );
@@ -246,6 +440,6 @@ cv::Mat1b SkinModel::classify(const cv::Mat3b& img2)
 	
 	cout<<"Duration = "<<t_end - t_begin <<" sec"<<endl;
 
-    return skin;
+    return op_skin;
 }
 
