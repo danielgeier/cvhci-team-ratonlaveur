@@ -18,6 +18,7 @@
 #include "ROC.h"
 #include <iostream>
 #include <iso646.h>
+#include <include/opencv2/ml/ml.hpp>
 using namespace std;
 
 
@@ -62,82 +63,107 @@ int main(int argc, char* argv[]) {
 	//	srand(time(0));
 	random_shuffle(images.begin(), images.end());
 
-	/// Perform a 5 fold cross evaluation, store results on a ROC
-	ROC<int> roc;
-	constexpr unsigned int nFolds = 5;
-	for (unsigned int fold = 0; fold < nFolds; fold++) {
 
-		cout << "\x1b[31;1m" << "Start fold " << (fold + 1) << " of " << nFolds << "\x1b[0m" << endl;
-
-		vector<string> testImgs, trainImgs;
-		for (unsigned int i = 0; i < images.size(); i++) {
-			if (i%nFolds == fold) {
-				testImgs.push_back(images[i]);
-			}
-			else {
-				trainImgs.push_back(images[i]);
-			}
-		}
-
-
-		/// create skin color model instance
-		SkinModel model;
-
-		/// train model with all images in the train folder
-		model.startTraining();
-
-		for (auto &f : trainImgs) {
-			cout << "Training on Image " << path + "/" + f << endl;
-			cv::Mat3b img = cv::imread(path + "/" + f);
-			cv::Mat1b mask = cv::imread(path + "/mask-" + f, 0);
-
-			cv::threshold(mask, mask, 127, 255, cv::THRESH_BINARY);
-			model.train(img, mask);
-		}
-
-		model.finishTraining();
-
-		/// test model with all images in the test folder, 
-		for (auto &f : testImgs) {
-			cout << "Testing Image " << path + "/" + f << endl;
-			cv::Mat3b img = cv::imread(path + "/" + f);
-			cv::Mat1b hyp = model.classify(img);
-
-			cv::Mat1b mask = cv::imread(path + "/mask-" + f, 0);
-
-			for (int i = 0; i < hyp.rows; i++)
-				for (int j = 0; j < hyp.cols; j++)
-					roc.add(mask(i, j)>127, hyp(i, j));
-		}
-	}
-
-	/// After testing, update statistics and show results
-	roc.update();
-
-	cout << "Overall F1 score: " << roc.F1 << endl;
-
-	/// Display final result if desired
-	if (pom.count("gui")) {
-		cv::imshow("ROC", roc.draw());
-		cv::waitKey(0);
-	}
-
-	/// Ouput a summary of the data if required
-	//if (pom.count("out")) {
-	if (true)
+	// Do the whole thing several times (each time a different image alteration gets applied)
+	for (size_t mode = 0; mode < 5; mode++)
 	{
-		//	string p = pom["out"].as<string>();
-		string p = "";
-	/// GRAPH format with one FPR and TPR coordinates per line
-	ofstream graph(p + "/graph.txt");
-	for (auto &dot : roc.graph)
-		graph << dot.first << " " << dot.second << endl;
 
-	/// Single output of the F1 scores
-	ofstream score(p + "/score.txt");
-	score << roc.F1 << endl;
-	/// Ouput of the obtained ROC figure
-	cv::imwrite(p + "/ROC.png", roc.draw());
-}
+
+
+		/// Perform a 5 fold cross evaluation, store results on a ROC
+		ROC<int> roc;
+		constexpr unsigned int nFolds = 5;
+		for (unsigned int fold = 0; fold < nFolds; fold++) {
+
+			cout << "\x1b[31;1m" << "Start fold " << (fold + 1) << " of " << nFolds << "\x1b[0m" << endl;
+
+			vector<string> testImgs, trainImgs;
+			for (unsigned int i = 0; i < images.size(); i++) {
+				if (i%nFolds == fold) {
+					testImgs.push_back(images[i]);
+				}
+				else {
+					trainImgs.push_back(images[i]);
+				}
+			}
+
+
+			/// create skin color model instance
+			SkinModel model;
+
+			/// train model with all images in the train folder
+			model.startTraining();
+
+			for (auto &f : trainImgs) {
+				cout << "Training on Image " << path + "/" + f << endl;
+
+				string fullpath = "C:\\Users\\danie\\Documents\\SkinDetection\\data";
+
+				cv::Mat3b img = cv::imread(fullpath + "/" + f);
+				cv::Mat1b mask = cv::imread(fullpath + "/mask-" + f, 0);
+				/*cv::Mat3b img = cv::imread(path + "/" + f);
+				cv::Mat1b mask = cv::imread(path + "/mask-" + f, 0);*/
+				cv::threshold(mask, mask, 127, 255, cv::THRESH_BINARY);
+				model.train(img, mask);
+			}
+
+			model.finishTraining();
+
+			/// test model with all images in the test folder, 
+			for (auto &f : testImgs) {
+				cout << "Testing Image " << path + "/" + f << endl;
+				cv::Mat3b img = cv::imread(path + "/" + f);
+
+				//cv::FileStorage skinfs("skin" + std::to_string(pimpl->counter) + ".yml", cv::FileStorage::WRITE);
+				//cv::FileStorage notskinfs("nonSkin" + std::to_string(pimpl->counter) + ".yml", cv::FileStorage::WRITE);
+
+				//pimpl->skin->write(skinfs);
+				//pimpl->notSkin->write(notskinfs);
+
+
+
+
+				cv::Mat1b hyp = model.classify(img);
+				string name =  std::to_string(mode) +f;
+				cv::imwrite(name, hyp);
+
+				cv::Mat1b mask = cv::imread(path + "/mask-" + f, 0);
+
+				for (int i = 0; i < hyp.rows; i++)
+					for (int j = 0; j < hyp.cols; j++)
+						roc.add(mask(i, j)>127, hyp(i, j));
+			}
+		}
+
+		/// After testing, update statistics and show results
+		roc.update();
+	//	cv::imwrite("roc " + mode, roc.draw());
+		cout << "Overall F1 score: " << roc.F1 << endl;
+
+		/// Display final result if desired
+		if (pom.count("gui")) {
+			cv::imshow("ROC", roc.draw());
+			cv::waitKey(0);
+		}
+
+		/// Ouput a summary of the data if required
+		//if (pom.count("out")) {
+		if (true)
+		{
+			//	string p = pom["out"].as<string>();
+			string p = "";
+			/// GRAPH format with one FPR and TPR coordinates per line
+			ofstream graph(p + "/graph.txt");
+			for (auto &dot : roc.graph)
+				graph << dot.first << " " << dot.second << endl;
+
+			/// Single output of the F1 scores
+			ofstream score(p + "/score.txt");
+			score << roc.F1 << endl;
+			/// Ouput of the obtained ROC figure
+			cv::imwrite("ROC " + std::to_string(mode) + ".png", roc.draw());
+		}
+	}
+
 }
 
