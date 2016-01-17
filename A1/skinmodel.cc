@@ -12,6 +12,20 @@
 
 using namespace std;
 
+cv::Mat3b preprocess(const cv::Mat3b& img)
+{
+	// Scale intensity adjustment constant c to mean intensity of unprocessed image.
+	cv::Scalar meanRgb = cv::mean(img);
+	float mean = (meanRgb.val[0] + meanRgb.val[1] + meanRgb.val[2]) / 3.;
+	float c = /*20*/(mean * mean * mean) / 10000;
+	auto img2 = img;
+	adjust_intensity(img2, c);
+
+	cv::xphoto::balanceWhite(img2, img2, 0, 0, 255, 0, 255);
+
+	return img2;
+}
+
 class SkinModel::SkinModelPimpl {
 public:
 	CvKNearest *classifier;
@@ -51,7 +65,7 @@ void SkinModel::train(const cv::Mat3b& img, const cv::Mat1b& mask)
 {
 	//--- IMPLEMENT THIS ---//
 
-	int nb_pts = img.rows*img.cols/1;
+	int nb_pts = img.rows*img.cols/1000;
 
     cv::Mat image_vectors = cv::Mat::zeros(nb_pts  , 3, CV_32FC1); //img.rows*img.cols
     cv::Mat responses = cv::Mat::zeros(nb_pts  , 1, CV_32FC1);
@@ -128,12 +142,14 @@ void SkinModel::finishTraining()
 ///
 /// @param img: unknown test image
 /// @return:    probability mask of skin color likelihood
-cv::Mat1b SkinModel::classify(const cv::Mat3b& img)
+cv::Mat1b SkinModel::classify(const cv::Mat3b& img2)
 {
+	cv::Mat3b img = preprocess(img2);
+
     cv::Mat1b skin = cv::Mat1b::zeros(img.rows, img.cols);
 
     int t_begin = time(NULL);
-    int nb_neihbours = 2;
+    int nb_neihbours = 6;
 
     //cout<<"flag 0.5 "<<endl;
 
