@@ -203,8 +203,8 @@ cv::Mat3b preprocess(const cv::Mat3b& img)
 {
 	// Scale intensity adjustment constant c to mean intensity of unprocessed image.
 	cv::Scalar meanRgb = cv::mean(img);
-	float mean = (meanRgb.val[0] + meanRgb.val[1] + meanRgb.val[2]) / 3;
-	float c = (mean * mean) / 400;
+	float mean = (meanRgb.val[0] + meanRgb.val[1] + meanRgb.val[2]) / 3.;
+	float c = /*20*/(mean * mean * mean) / 10000;
 	auto img2 = img;
 	adjust_intensity(img2, c);
 
@@ -441,6 +441,15 @@ float SkinModel::SkinModelPimpl::dempsterShaferClassify(const unsigned char pixe
 	return totalPSkin - totalPNonskin;
 }
 
+bool IsWithinEllipse(int x, int y, int h = 317, int k = 310, int major = 270, int minor = 187)
+{
+	float val = (pow((x - h), 2) / pow(major, 2)) + (pow((y - k), 2) / pow(minor, 2));
+	if (val <= 1)
+		return true;
+
+	return false;
+}
+
 /// Classify an unknown test image.  The result is a probability
 /// mask denoting for each pixel how likely it is of skin color.
 ///
@@ -457,11 +466,7 @@ cv::Mat1b SkinModel::classify(const cv::Mat3b& img)
 	{
 		for (int col = 0; col < prepImg.cols; ++col)
 		{
-			if (row < 80 ||
-				col < 160 ||
-				col > 500 ||
-				col + row < 350 )//||
-				//(row < 400 && col + row > 700))
+			if (!IsWithinEllipse(row, col))
 				continue;
 
 			auto pixel = prepImg.at<cv::Vec3b>(row, col).val;
@@ -480,16 +485,16 @@ cv::Mat1b SkinModel::classify(const cv::Mat3b& img)
 	int vgood = preSkin.at<float>(640. * 480. * 0.98);
 	int vbad = preSkin.at<float>(640. * 480. * 0.85);
 
-//	for (uchar& s : skin)
-//	{
-//		if (s < vbad - vgood)
-//			s = 0;
-//		else if (s > vgood)
-//			s = 255;
-//	}
+	for (uchar& s : skin)
+	{
+		if (s < vbad)
+			s = 0;
+		else if (s > vgood)
+			s = 255;
+	}
 	cout << vbad << ' ' << vgood << endl;
 
-	cv::threshold(skin, skin, (vgood + vgood) / 2., 255., cv::THRESH_BINARY);
+	cv::threshold(skin, skin, 128/*(vgood + vgood) / 2.*/, 255., cv::THRESH_BINARY);
 
 	const bool SHOW_IMAGES = false;
 	if (SHOW_IMAGES)
@@ -502,9 +507,9 @@ cv::Mat1b SkinModel::classify(const cv::Mat3b& img)
 				uchar* pixel = prepImg.at<cv::Vec3b>(row, col).val;
 
 				uchar val = skin.at<unsigned char>(row, col);
-				//if (val == 255) {
+				if (val == 255) {
 				pixel[1] = val;
-				//}
+				}
 			}
 		}
 		namedWindow("Display window", cv::WINDOW_AUTOSIZE);// Create a window for display.
