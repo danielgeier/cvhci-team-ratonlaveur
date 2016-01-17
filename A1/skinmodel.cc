@@ -51,7 +51,7 @@ void SkinModel::train(const cv::Mat3b& img, const cv::Mat1b& mask)
 {
 	//--- IMPLEMENT THIS ---//
 
-	int nb_pts = img.rows*img.cols/1000;
+	int nb_pts = img.rows*img.cols/1;
 
     cv::Mat image_vectors = cv::Mat::zeros(nb_pts  , 3, CV_32FC1); //img.rows*img.cols
     cv::Mat responses = cv::Mat::zeros(nb_pts  , 1, CV_32FC1);
@@ -133,7 +133,7 @@ cv::Mat1b SkinModel::classify(const cv::Mat3b& img)
     cv::Mat1b skin = cv::Mat1b::zeros(img.rows, img.cols);
 
     int t_begin = time(NULL);
-    int nb_neihbours = 10;
+    int nb_neihbours = 2;
 
     //cout<<"flag 0.5 "<<endl;
 
